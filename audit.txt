@@ -1,0 +1,1183 @@
+﻿#####################################################
+#													#
+#    Usage: Audit.ps1 'pathtolistofservers'         #
+#													#
+#    The file is optional and needs to be a 		#
+#	 plain text list of computers to be audited 	#
+#	 one on each line.								#
+#                                                   #
+#####################################################
+
+param( [string] $auditlist)
+
+if ($auditlist -eq ""){
+	Write-Host "No list specified, using $env:computername"
+	$targets = $env:computername
+}
+else
+{
+	if ((Test-Path $auditlist) -eq $false)
+	{
+		Write-Host "Invalid audit path specified: $auditlist"
+		exit
+	}
+	else
+	{
+		Write-Host "Using Audit list: $auditlist"
+		$Targets = Get-Content $auditlist
+	}
+}
+
+$Date = Get-Date
+$Date = $Date.ToString("dd/MM/yyyy")
+Foreach ($Target in $Targets){
+	Write-Output "Collating Detail for $Target"
+	$ComputerSystem = Get-WmiObject -computername $Target Win32_ComputerSystem
+	switch ($ComputerSystem.DomainRole){
+		0 { $ComputerRole = "Standalone Workstation" }
+		1 { $ComputerRole = "Member Workstation" }
+		2 { $ComputerRole = "Standalone Server" }
+		3 { $ComputerRole = "Member Server" }
+		4 { $ComputerRole = "Domain Controller" }
+		5 { $ComputerRole = "Domain Controller" }
+		default { $ComputerRole = "Information not available" }
+	}
+	
+    $temp = Get-WmiObject -computername $Target Win32_TemperatureProbe
+    
+	$OperatingSystems = Get-WmiObject -computername $Target Win32_OperatingSystem
+	$TimeZone = Get-WmiObject -computername $Target Win32_Timezone
+	$Keyboards = Get-WmiObject -computername $Target Win32_Keyboard
+	$SchedTasks = Get-WmiObject -computername $Target Win32_ScheduledJob
+	$BootINI = $OperatingSystems.SystemDrive + "boot.ini"
+	$RecoveryOptions = Get-WmiObject -computername $Target Win32_OSRecoveryConfiguration
+    $sysenclosure = Get-WmiObject -computername $Target Win32_SystemEnclosure
+	
+	switch ($ComputerRole){
+		"Member Workstation" { $CompType = "Computer Domain"; break }
+		"Domain Controller" { $CompType = "Computer Domain"; break }
+		"Member Server" { $CompType = "Computer Domain"; break }
+		default { $CompType = "Computer Workgroup"; break }
+	}
+
+	$LBTime=$OperatingSystems.ConvertToDateTime($OperatingSystems.Lastbootuptime)
+	Write-Output "..Hotfix Information"
+	$colQuickFixes = Get-WmiObject Win32_QuickFixEngineering
+    Write-Output "..Hardware Information"
+	$devices = Get-WmiObject Win32_PnPEntity
+	Write-Output "..Physical Disks"
+	$PcolDisks = Get-WmiObject -ComputerName $Target Win32_DiskDrive
+    Write-Output "..Logical Disks"
+	$colDisks = Get-WmiObject -ComputerName $Target Win32_LogicalDisk
+	Write-Output "..Network Configuration"
+	$NICCount = 0
+	$colAdapters = Get-WmiObject -ComputerName $Target Win32_NetworkAdapterConfiguration
+	Write-Output "..Local Shares"
+	$colShares = Get-wmiobject -ComputerName $Target Win32_Share
+	Write-Output "..Printers"
+	$colInstalledPrinters =  Get-WmiObject -ComputerName $Target Win32_Printer
+	Write-Output "..Services"
+	$colListOfServices = Get-WmiObject -ComputerName $Target Win32_Service
+	Write-Output "..Regional Options"
+	$ObjKeyboards = Get-WmiObject -ComputerName $Target Win32_Keyboard
+	$keyboardmap = @{
+	"00000402" = "BG" 
+	"00000404" = "CH" 
+	"00000405" = "CZ" 
+	"00000406" = "DK" 
+	"00000407" = "GR" 
+	"00000408" = "GK" 
+	"00000409" = "US" 
+	"0000040A" = "SP" 
+	"0000040B" = "SU" 
+	"0000040C" = "FR" 
+	"0000040E" = "HU" 
+	"0000040F" = "IS" 
+	"00000410" = "IT" 
+	"00000411" = "JP" 
+	"00000412" = "KO" 
+	"00000413" = "NL" 
+	"00000414" = "NO" 
+	"00000415" = "PL" 
+	"00000416" = "BR" 
+	"00000418" = "RO" 
+	"00000419" = "RU" 
+	"0000041A" = "YU" 
+	"0000041B" = "SL" 
+	"0000041C" = "US" 
+	"0000041D" = "SV" 
+	"0000041F" = "TR" 
+	"00000422" = "US" 
+	"00000423" = "US" 
+	"00000424" = "YU" 
+	"00000425" = "ET" 
+	"00000426" = "US" 
+	"00000427" = "US" 
+	"00000804" = "CH" 
+	"00000809" = "UK" 
+	"0000080A" = "LA" 
+	"0000080C" = "BE" 
+	"00000813" = "BE" 
+	"00000816" = "PO" 
+	"00000C0C" = "CF" 
+	"00000C1A" = "US" 
+	"00001009" = "US" 
+	"0000100C" = "SF" 
+	"00001809" = "US" 
+	"00010402" = "US" 
+	"00010405" = "CZ" 
+	"00010407" = "GR" 
+	"00010408" = "GK" 
+	"00010409" = "DV" 
+	"0001040A" = "SP" 
+	"0001040E" = "HU" 
+	"00010410" = "IT" 
+	"00010415" = "PL" 
+	"00010419" = "RU" 
+	"0001041B" = "SL" 
+	"0001041F" = "TR" 
+	"00010426" = "US" 
+	"00010C0C" = "CF" 
+	"00010C1A" = "US" 
+	"00020408" = "GK" 
+	"00020409" = "US" 
+	"00030409" = "USL" 
+	"00040409" = "USR" 
+	"00050408" = "GK" 
+	}
+	$keyb = $keyboardmap.$($ObjKeyboards.Layout)
+	if (!$keyb)
+	{ $keyb = "Unknown"
+	}
+
+    if ($ComputerRole -ne "Member Workstation")
+    {
+	    Write-Output "..Event Log Settings"
+	    $colLogFiles = Get-WmiObject -ComputerName $Target Win32_NTEventLogFile
+	    Write-Output "..Event Log Errors"
+	    $WmidtQueryDT = [System.Management.ManagementDateTimeConverter]::ToDmtfDateTime([DateTime]::Now.AddDays(-14))
+	    $colELoggedEvents = Get-WmiObject -computer $Target -query ("Select * from Win32_NTLogEvent Where Type='Error' and TimeWritten >='" + $WmidtQueryDT + "'")
+	    Write-Output "..Event Log Warnings"
+	    $WmidtQueryDT = [System.Management.ManagementDateTimeConverter]::ToDmtfDateTime([DateTime]::Now.AddDays(-14))
+	    $colWLoggedEvents = Get-WmiObject -computer $Target -query ("Select * from Win32_NTLogEvent Where Type='Warning' and TimeWritten >='" + $WmidtQueryDT + "'")
+    }
+    Write-Output "..AntiVirus Settings"
+    $av =  Get-WmiObject -Namespace ROOT\Securitycenter2 -Query "select * from antivirusproduct" | select productState, pathToSignedProductExe, DisplayName 
+
+	$Filename = ".\" + $Target + ".htm"
+
+	$Report = @"
+	<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+	<html ES_auditInitialized='false'><head><title>Audit</title>
+	<META http-equiv=Content-Type content='text/html; charset=windows-1252'>
+	<STYLE type=text/css>	
+		DIV .expando {DISPLAY: block; FONT-WEIGHT: normal; FONT-SIZE: 8pt; RIGHT: 10px; COLOR: #ffffff; FONT-FAMILY: Tahoma; POSITION: absolute; TEXT-DECORATION: underline}
+		TABLE {TABLE-LAYOUT: fixed; FONT-SIZE: 100%; WIDTH: 100%}
+		#objshowhide {PADDING-RIGHT: 10px; FONT-WEIGHT: bold; FONT-SIZE: 8pt; Z-INDEX: 2; CURSOR: hand; COLOR: #000000; MARGIN-RIGHT: 0px; FONT-FAMILY: Tahoma; TEXT-ALIGN: right; TEXT-DECORATION: underline; WORD-WRAP: normal}
+		.heading0_expanded {BORDER-RIGHT: #bbbbbb 1px solid; PADDING-RIGHT: 5em; BORDER-TOP: #bbbbbb 1px solid; DISPLAY: block; PADDING-LEFT: 8px; FONT-WEIGHT: bold; FONT-SIZE: 8pt; MARGIN-BOTTOM: -1px; MARGIN-LEFT: 0px; BORDER-LEFT: #bbbbbb 1px solid; WIDTH: 100%; CURSOR: hand; COLOR: #FFFFFF; MARGIN-RIGHT: 0px; PADDING-TOP: 4px; BORDER-BOTTOM: #bbbbbb 1px solid; FONT-FAMILY: Tahoma; POSITION: relative; HEIGHT: 2.25em; BACKGROUND-COLOR: #000000}
+		.heading1 {BORDER-RIGHT: #bbbbbb 1px solid; PADDING-RIGHT: 5em; BORDER-TOP: #bbbbbb 1px solid; DISPLAY: block; PADDING-LEFT: 16px; FONT-WEIGHT: bold; FONT-SIZE: 8pt; MARGIN-BOTTOM: -1px; MARGIN-LEFT: 5px; BORDER-LEFT: #bbbbbb 1px solid; WIDTH: 100%; CURSOR: hand; COLOR: #ffffff; MARGIN-RIGHT: 0px; PADDING-TOP: 4px; BORDER-BOTTOM: #bbbbbb 1px solid; FONT-FAMILY: Tahoma; POSITION: relative; HEIGHT: 2.25em; BACKGROUND-COLOR: #333333}
+		.heading2 {BORDER-RIGHT: #bbbbbb 1px solid; PADDING-RIGHT: 5em; BORDER-TOP: #bbbbbb 1px solid; DISPLAY: block; PADDING-LEFT: 16px; FONT-WEIGHT: bold; FONT-SIZE: 8pt; MARGIN-BOTTOM: -1px; MARGIN-LEFT: 5px; BORDER-LEFT: #bbbbbb 1px solid; WIDTH: 100%; CURSOR: hand; COLOR: #ffffff; MARGIN-RIGHT: 0px; PADDING-TOP: 4px; BORDER-BOTTOM: #bbbbbb 1px solid; FONT-FAMILY: Tahoma; POSITION: relative; HEIGHT: 2.25em; BACKGROUND-COLOR: #666666}
+		.tableDetail {BORDER-RIGHT: #bbbbbb 1px solid; DISPLAY: block; PADDING-LEFT: 16px; FONT-SIZE: 8pt;MARGIN-BOTTOM: -1px; PADDING-BOTTOM: 5px; MARGIN-LEFT: 5px; WIDTH: 100%; COLOR: #000000; MARGIN-RIGHT: 0px; PADDING-TOP: 4px; FONT-FAMILY: Tahoma; POSITION: relative; BACKGROUND-COLOR: #f9f9f9}
+		.filler {BORDER-RIGHT: medium none; BORDER-TOP: medium none; DISPLAY: block; BACKGROUND: none transparent scroll repeat 0% 0%; MARGIN-BOTTOM: -1px; FONT: 100%/8px Tahoma; MARGIN-LEFT: 43px; BORDER-LEFT: medium none; COLOR: #ffffff; MARGIN-RIGHT: 0px; PADDING-TOP: 4px; BORDER-BOTTOM: medium none; POSITION: relative}
+		.Solidfiller {BORDER-RIGHT: medium none; BORDER-TOP: medium none; DISPLAY: block; BACKGROUND: none transparent scroll repeat 0% 0%; MARGIN-BOTTOM: -1px; FONT: 100%/8px Tahoma; MARGIN-LEFT: 0px; BORDER-LEFT: medium none; COLOR: #000000; MARGIN-RIGHT: 0px; PADDING-TOP: 4px; BORDER-BOTTOM: medium none; POSITION: relative; BACKGROUND-COLOR: #000000}
+		td {VERTICAL-ALIGN: TOP; FONT-FAMILY: Tahoma}
+		th {VERTICAL-ALIGN: TOP; COLOR: #000000; TEXT-ALIGN: left}
+	</STYLE>
+	
+	</HEAD>
+	<BODY>
+    <div style="float:right;"></div> 
+   <div style="float:left;"> <img style="width:175px" src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz48c3ZnIGlkPSJMYXllcl8xIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzNTkuNiAxMDQuNDEiPjxkZWZzPjxzdHlsZT4uY2xzLTF7ZmlsbDojZmYwMDZiO30uY2xzLTEsLmNscy0ye3N0cm9rZS13aWR0aDowcHg7fS5jbHMtMntmaWxsOiNmZmY7fTwvc3R5bGU+PC9kZWZzPjxwYXRoIGNsYXNzPSJjbHMtMSIgZD0iTTEwMi43Nyw0Ny4zOGMtLjExLDAtLjIyLjAyLS4zNC4wMmgtMjMuOHYzMy44OGwyMy40NS0yMy40NWMyLjg1LTIuODUsMy4wOC03LjMzLjY5LTEwLjQ1TTI4LjM0LDM5LjI4di00Ljg3YzAtNC40OCwzLjYzLTguMTEsOC4xMS04LjExaDQ1LjM1TDU3LjgzLDIuMzNjLTMuMTEtMy4xMS04LjE0LTMuMTEtMTEuMjUsMEwyLjMzLDQ2LjU4Yy0zLjExLDMuMTEtMy4xMSw4LjE0LDAsMTEuMjVsNDQuMjUsNDQuMjVjMy4xMSwzLjExLDguMTQsMy4xMSwxMS4yNSwwbDIuNDItMi40MnYtNTIuMjdoLTIzLjhjLTQuNDgsMC04LjExLTMuNjMtOC4xMS04LjExIi8+PHBvbHlnb24gY2xhc3M9ImNscy0yIiBwb2ludHM9IjEyNC41MiAzMC40OCAxMTIuMTIgMzAuNDggMTEyLjEyIDI2LjI5IDE0Mi4zIDI2LjI5IDE0Mi4zIDMwLjQ4IDEyOS44NCAzMC40OCAxMjkuODQgNjQuNCAxMjQuNTIgNjQuNCAxMjQuNTIgMzAuNDgiLz48cGF0aCBjbGFzcz0iY2xzLTIiIGQ9Ik0xNTEuMiw1MC40MWMtNS44MS0uMTEtMTIuNC44NS0xMi40LDYuMTksMCwzLjI5LDIuMyw0Ljc3LDQuOTYsNC43NywzLjg3LDAsNi4zNS0yLjI3LDcuMi00LjYuMTgtLjUxLjI0LTEuMDguMjQtMS41OXYtNC43N2gwWk0xNTYuNCw1Ny44NGMwLDIuMzguMTIsNC43MS40Myw2LjU4aC00Ljc4bC0uNDgtMy40NmgtLjE4Yy0xLjU3LDIuMTYtNC43OCw0LjA5LTguOTUsNC4wOS01LjkzLDAtOC45NS0zLjkyLTguOTUtNy44OSwwLTYuNjQsNi4yOS0xMC4yNywxNy42LTEwLjIydi0uNTdjMC0yLjI3LS42Ny02LjQxLTYuNjUtNi4zNi0yLjc4LDAtNS42My43NC03LjY4LDIuMDRsLTEuMjEtMy4zNWMyLjQyLTEuNDIsNS45OS0yLjM4LDkuNjgtMi4zOCw5LjAxLDAsMTEuMTksNS43MywxMS4xOSwxMS4yNHYxMC4yN2gwWiIvPjxwYXRoIGNsYXNzPSJjbHMtMiIgZD0iTTE1OS44MSw2NC40M2g1LjMydi0yNy40N2gtNS4zMnYyNy40N1pNMTYyLjM4LDMyLjcxaC4wNmMyLjEyLDAsMy40NS0xLjQ3LDMuNDUtMy4yNHMtMS4zMy0zLjE4LTMuMzktMy4xOC0zLjQ1LDEuNDItMy40NSwzLjE4LDEuMzMsMy4yNCwzLjMzLDMuMjQiLz48cmVjdCBjbGFzcz0iY2xzLTIiIHg9IjE2OC41OCIgeT0iMjQuMTMiIHdpZHRoPSI1LjMyIiBoZWlnaHQ9IjQwLjI5Ii8+PHBhdGggY2xhc3M9ImNscy0yIiBkPSJNMTkxLjM0LDYxLjNjNS4wOCwwLDguODktNC40OCw4Ljg5LTEwLjcyLDAtNC42NS0yLjQ4LTEwLjUtOC43Ny0xMC41cy04Ljk1LDUuNDUtOC45NSwxMC42N2MwLDYuMDIsMy42MywxMC41NSw4Ljc3LDEwLjU1aC4wNlpNMTkxLjE2LDY1LjA1Yy03Ljg2LDAtMTQuMDMtNS40NS0xNC4wMy0xNC4xMywwLTkuMTksNi40Ny0xNC41OCwxNC41Mi0xNC41OHMxNC4wOSw1LjczLDE0LjA5LDE0LjA3YzAsMTAuMjItNy41NiwxNC42NC0xNC41MiwxNC42NGgtLjA2WiIvPjxwYXRoIGNsYXNzPSJjbHMtMiIgZD0iTTIwOS4yMSw0NS41M2MwLTMuMjQtLjA2LTYuMDItLjI0LTguNTdoNC42NmwuMjQsNS4zOWguMThjMS4zMy0zLjY5LDQuNi02LjAyLDguMTYtNi4wMi41NCwwLC45Ny4wNiwxLjQ1LjE3djQuNjVjLS42LS4wNi0xLjE1LS4xMS0xLjg3LS4xMS0zLjc1LDAtNi40MSwyLjY3LTcuMTQsNi4zNi0uMTIuNzQtLjE4LDEuNTMtLjE4LDIuMzh2MTQuNjRoLTUuMzJsLjA2LTE4LjloMFoiLz48cGF0aCBjbGFzcz0iY2xzLTIiIGQ9Ik0yOTQuMzEsNTAuNDFjLTUuODEtLjExLTEyLjQuODUtMTIuNCw2LjE5LDAsMy4yOSwyLjMsNC43Nyw0Ljk2LDQuNzcsMy44NywwLDYuMzUtMi4yNyw3LjItNC42LjE4LS41MS4yNC0xLjA4LjI0LTEuNTl2LTQuNzdoMFpNMjk5LjUxLDU3Ljg0YzAsMi4zOC4xMiw0LjcxLjQyLDYuNThoLTQuNzhsLS40OC0zLjQ2aC0uMThjLTEuNTcsMi4xNi00Ljc4LDQuMDktOC45NSw0LjA5LTUuOTMsMC04Ljk1LTMuOTItOC45NS03Ljg5LDAtNi42NCw2LjI5LTEwLjI3LDE3LjYtMTAuMjJ2LS41N2MwLTIuMjctLjY3LTYuNDEtNi42NS02LjM2LTIuNzgsMC01LjYzLjc0LTcuNjgsMi4wNGwtMS4yMS0zLjM1YzIuNDItMS40Miw1Ljk5LTIuMzgsOS42OC0yLjM4LDkuMDEsMCwxMS4xOSw1LjczLDExLjE5LDExLjI0djEwLjI3aDBaIi8+PHBhdGggY2xhc3M9ImNscy0yIiBkPSJNMzI1LjA1LDQ4LjE0YzAtLjY4LS4wNi0xLjQ3LS4yNC0yLjE2LS43OS0zLjEyLTMuNzItNS43My03Ljc1LTUuNzMtNS41NSwwLTguODUsNC41NC04Ljg1LDEwLjU2LDAsNS42MiwyLjk5LDEwLjIyLDguNzMsMTAuMjIsMy42LDAsNi45LTIuMjcsNy44Ny01Ljk2LjE5LS42OC4yNC0xLjM2LjI0LTIuMTZ2LTQuNzdoMFpNMzMwLjQzLDI0LjEzdjMzLjJjMCwyLjQ0LjA2LDUuMjIuMjQsNy4xaC00LjgybC0uMjQtNC43N2gtLjEyYy0xLjY1LDMuMDYtNS4xOSw1LjM5LTEwLjAxLDUuMzktNy4xNCwwLTEyLjY5LTUuNjItMTIuNjktMTMuOTYtLjA2LTkuMiw2LjEtMTQuNzYsMTMuMjQtMTQuNzYsNC41NywwLDcuNjMsMS45OSw4LjkxLDQuMTVoLjEydi0xNi4zNGg1LjM3WiIvPjxwYXRoIGNsYXNzPSJjbHMtMiIgZD0iTTM1NC40NSw0Ny45N2MuMDYtMy4xMi0xLjM5LTguMTEtNy4zMi04LjExLTUuNDQsMC03Ljc0LDQuNjUtOC4xNiw4LjExaDE1LjQ4Wk0zMzguOTEsNTEuNTRjLjEyLDYuNzUsNC42Niw5LjUzLDkuOTgsOS41MywzLjgxLDAsNi4xNy0uNjIsOC4xLTEuMzZsLjk3LDMuNTJjLTEuODcuOC01LjE0LDEuNzYtOS44LDEuNzYtOC45NSwwLTE0LjM5LTUuNjItMTQuMzktMTMuODVzNS4yNi0xNC44NywxMy43OS0xNC44N2M5LjU2LDAsMTIuMDQsNy44OSwxMi4wNCwxMi45NCwwLDEuMDItLjA2LDEuODItLjE4LDIuMzhsLTIwLjUtLjA2aDBaIi8+PHBvbHlnb24gY2xhc3M9ImNscy0yIiBwb2ludHM9IjI2OC4yNiA2NC40IDI3My40OSA2NC40IDI3My40OSAyNi4yOSAyNjcuNCAyNi4yOSAyNTQuNzggNDUuOSAyNDIuMTYgMjYuMjkgMjM2LjA3IDI2LjI5IDIzNi4wNyA2NC40IDI0MS4xOSA2NC40IDI0MS4xOSAzMy44OCAyNTQuNjcgNTQuMDYgMjY4LjI2IDMzLjc3IDI2OC4yNiA2NC40Ii8+PHBhdGggY2xhc3M9ImNscy0yIiBkPSJNMjM2Ljc5LDg3aC0uMDJjLTIuODgsMC00LjM4LTIuODYtNC4zOC01LjY5LDAtMS42MS40LTMuMDgsMS4xNC00LjE0Ljc5LTEuMTQsMS45My0xLjczLDMuMjktMS43MywzLjAxLDAsNC4zOCwyLjk2LDQuMzgsNS43MSwwLDIuOTEtMS4zNiw1Ljg0LTQuNCw1Ljg0TTIzNi44OCw3Mi45NWMtNC4zOSwwLTcuNDYsMy40Ni03LjQ2LDguNDFzMi45OSw4LjE0LDcuMjYsOC4xNGguMDJjMy43MiwwLDcuNDYtMi42MSw3LjQ2LTguNDMsMC00Ljg1LTIuOTMtOC4xMi03LjI5LTguMTIiLz48cG9seWdvbiBjbGFzcz0iY2xzLTIiIHBvaW50cz0iMTIxLjEzIDc1Ljc2IDEyNS43NCA3NS43NiAxMjUuNzQgODkuMjQgMTI4LjYyIDg5LjI0IDEyOC42MiA3NS43NiAxMzMuMjUgNzUuNzYgMTMzLjI1IDczLjE5IDEyMS4xMyA3My4xOSAxMjEuMTMgNzUuNzYiLz48cG9seWdvbiBjbGFzcz0iY2xzLTIiIHBvaW50cz0iMTkzLjc2IDc5LjUzIDE4Ny4zNCA3OS41MyAxODcuMzQgNzMuMTkgMTg0LjQ2IDczLjE5IDE4NC40NiA4OS4yNSAxODcuMzQgODkuMjUgMTg3LjM0IDgyLjE0IDE5My43NiA4Mi4xNCAxOTMuNzYgODkuMjUgMTk2LjY0IDg5LjI1IDE5Ni42NCA3My4xOSAxOTMuNzYgNzMuMTkgMTkzLjc2IDc5LjUzIi8+PHBhdGggY2xhc3M9ImNscy0yIiBkPSJNMTcwLjA0LDc1LjUxYzEuMDYsMCwyLjA5LjIxLDIuODMuNThsLjQ4LjI0Ljc2LTIuNS0uMzUtLjE3Yy0uMzQtLjE2LTEuNjItLjctMy43OS0uNy00LjkyLDAtOC4zNiwzLjQ1LTguMzYsOC4zOHMzLjEsOC4xMiw3LjkxLDguMTJjMiwwLDMuNDktLjQsNC4yMS0uNzdsLjMxLS4xNi0uNi0yLjQ2LS41LjI0Yy0uNzQuMzYtMS45LjU5LTMuMDIuNTktMy4zNSwwLTUuMzUtMi4xLTUuMzUtNS42MiwwLTEuOC41Mi0zLjI4LDEuNDktNC4yOS45NS0uOTgsMi4zMi0xLjQ5LDMuOTctMS40OSIvPjxyZWN0IGNsYXNzPSJjbHMtMiIgeD0iMzE2LjIiIHk9IjczLjE5IiB3aWR0aD0iMi44OCIgaGVpZ2h0PSIxNi4wNiIvPjxwYXRoIGNsYXNzPSJjbHMtMiIgZD0iTTI3Ny44NSw4N2gtLjAyYy0yLjg4LDAtNC4zOC0yLjg2LTQuMzgtNS42OSwwLTEuNjEuNC0zLjA4LDEuMTQtNC4xNC43OS0xLjE0LDEuOTMtMS43MywzLjI5LTEuNzMsMy4wMSwwLDQuMzgsMi45Niw0LjM4LDUuNzEsMCwyLjkxLTEuMzcsNS44NC00LjQxLDUuODRNMjc3Ljk0LDcyLjk1Yy00LjM5LDAtNy40NiwzLjQ2LTcuNDYsOC40MXMyLjk5LDguMTQsNy4yNiw4LjE0aC4wMmMzLjcyLDAsNy40Ni0yLjYxLDcuNDYtOC40MywwLTQuODUtMi45My04LjEyLTcuMjktOC4xMiIvPjxwYXRoIGNsYXNzPSJjbHMtMiIgZD0iTTMwMC4xNCw4Mi44NmgzLjA2djMuNzdjLS4zNC4xMS0xLC4yNi0yLjE2LjI2LTMuMzgsMC01LjM5LTIuMTItNS4zOS01LjY2czIuMTYtNS42NCw1LjY0LTUuNjRjMS4yNywwLDIuMjguMTksMy4xNi42MWwuNDcuMjIuNzYtMi40Ni0uMzUtLjE3Yy0uNzEtLjM0LTIuMTgtLjc0LTQtLjc0LTUuMTgsMC04LjY1LDMuMzMtOC42NSw4LjI3LDAsMi40MS44Miw0LjU4LDIuMjUsNS45NywxLjUsMS40MywzLjQ1LDIuMTMsNS45OCwyLjEzczQuMzEtLjY2LDQuODMtLjg2bC4yOS0uMTF2LTguMDRoLTUuODl2Mi40N2gwWiIvPjxwb2x5Z29uIGNsYXNzPSJjbHMtMiIgcG9pbnRzPSIyNTYuNTggNzMuMTkgMjUzLjcgNzMuMTkgMjUzLjcgODkuMjQgMjYzLjA1IDg5LjI0IDI2My4wNSA4Ni43IDI1Ni41OCA4Ni43IDI1Ni41OCA3My4xOSIvPjxwYXRoIGNsYXNzPSJjbHMtMiIgZD0iTTM1My43OCw3OS43OWMtMi4wNi0uOC0yLjczLTEuNC0yLjczLTIuNDgsMC0uODQuNjMtMS44MiwyLjQtMS44MiwxLjE2LDAsMi4xMS4zNCwyLjYyLjY1bC40OC4zLjg0LTIuNTEtLjMzLS4xOGMtLjQyLS4yMy0xLjYxLS43OC0zLjU1LS43OC0zLjE1LDAtNS4zNSwxLjg3LTUuMzUsNC41NiwwLDIuMTYsMS40MSwzLjcsNC4zMSw0LjcsMi4xMi44LDIuNTUsMS41OCwyLjU1LDIuNTksMCwxLjMyLTEuMDIsMi4xMS0yLjcyLDIuMTEtMS4xNCwwLTIuMzItLjMzLTMuMjUtLjlsLS40OS0uMy0uOCwyLjQ5LjI4LjE5Yy45NC42MywyLjYzLDEuMDcsNC4xMiwxLjA3LDMuOTYsMCw1LjczLTIuNDIsNS43My00Ljgxcy0xLjItMy43MS00LjEzLTQuODciLz48cG9seWdvbiBjbGFzcz0iY2xzLTIiIHBvaW50cz0iMTUyLjYzIDg2LjcgMTQ2LjEyIDg2LjcgMTQ2LjEyIDgyLjE0IDE1MS45OSA4Mi4xNCAxNTEuOTkgNzkuNjIgMTQ2LjEyIDc5LjYyIDE0Ni4xMiA3NS43MyAxNTIuNjMgNzUuNzMgMTUyLjYzIDczLjE5IDE0My4yNCA3My4xOSAxNDMuMjQgODkuMjQgMTUyLjYzIDg5LjI0IDE1Mi42MyA4Ni43Ii8+PHBvbHlnb24gY2xhc3M9ImNscy0yIiBwb2ludHM9IjMzOS4zMyA4Ni43IDMzMi44MiA4Ni43IDMzMi44MiA4Mi4xNCAzMzguNjkgODIuMTQgMzM4LjY5IDc5LjYyIDMzMi44MiA3OS42MiAzMzIuODIgNzUuNzMgMzM5LjMzIDc1LjczIDMzOS4zMyA3My4xOSAzMjkuOTQgNzMuMTkgMzI5Ljk0IDg5LjI0IDMzOS4zMyA4OS4yNCAzMzkuMzMgODYuNyIvPjxwYXRoIGNsYXNzPSJjbHMtMiIgZD0iTTIxNy4xOSw3My4xOXYxMC44NWMtLjk2LTEuNjYtNi42OC0xMC44NS02LjY4LTEwLjg1aC0yLjg2djE2LjA2aDIuNzR2LTExLjJjLjk2LDEuNjgsNi44NSwxMS4yLDYuODUsMTEuMmgyLjY4di0xNi4wNmgtMi43NCwwWiIvPjxwYXRoIGNsYXNzPSJjbHMtMiIgZD0iTTg0LjEyLDM2LjI0YzEuNzQsMCwzLjE1LTEuNDEsMy4xNS0zLjE1cy0xLjQxLTMuMTUtMy4xNS0zLjE1LTMuMTUsMS40MS0zLjE1LDMuMTUsMS40MSwzLjE1LDMuMTUsMy4xNSIvPjwvc3ZnPg==" />
+    <b><font face="Arial" size="5">$Target Audit<hr size="8" color="#753bbd"></font></b></div>
+	<div style="clear:both;" />
+	<font face="Arial" size="2">Report generated on $Date </font>
+	<div style="clear:both;" />
+    <br/>
+	<TABLE cellSpacing=0 cellPadding=0>
+		<TBODY>
+			<TR>
+				<TD>
+					<DIV id=objshowhide tabIndex=0><FONT face=Arial></FONT></DIV>
+				</TD>
+			</TR>
+		</TBODY>
+	</TABLE>
+	<DIV class=heading0_expanded>
+		<SPAN class=sectionTitle tabIndex=0>$target Details</SPAN>
+		<A class=expando href='#'></A>
+	</DIV>
+	<DIV class=filler></DIV>
+	<DIV class=container>
+	<DIV class=heading1>
+	<SPAN class=sectionTitle tabIndex=0>General</SPAN>
+	<A class=expando href='#'></A>
+	</DIV>
+	<DIV class=container>
+	<DIV class=tableDetail>
+	<TABLE>
+	<tr>
+	<th width='25%'><b>Computer Name</b></font></th>
+	<td width='75%'>$($ComputerSystem.Name)</font></td>
+	</tr>
+	<tr>
+	<th width='25%'><b>Computer Role</b></font></th>
+	<td width='75%'> $ComputerRole </font></td>
+	</tr>
+	<tr>
+	<th width='25%'><b>$CompType</b></font></th>	
+	<td width='75%'>$($ComputerSystem.Domain)</font></td>
+	</tr>
+	<tr>
+	<th width='25%'><b>Operating System</b></font></th>
+	<td width='75%'>$($OperatingSystems.Caption)</font></td>
+	</tr>
+	<tr>
+	<th width='25%'><b>Service Pack</b></font></th>
+	<td width='75%'>$($OperatingSystems.CSDVersion)</font></td>
+	</tr>
+	<tr>
+		<th width='25%'><b>System Root</b></font></th>
+		<td width='75%'>$($OperatingSystems.SystemDrive)</font></td>
+	</tr>
+	<tr>
+		<th width='25%'><b>Manufacturer</b></font></th>
+		<td width='75%'>$($ComputerSystem.Manufacturer)</font></td>
+	 				</tr>
+	<tr>
+		<th width='25%'><b>Model</b></font></th>
+		<td width='75%'>$($ComputerSystem.Model)</font></td>
+	 				</tr>
+                    
+	<tr>
+		<th width='25%'><b>Serial Number</b></font></th>
+		<td width='75%'>$($sysenclosure.SerialNumber)</font></td>
+	 				</tr>
+    <tr>
+		<th width='25%'><b>Number of Physical Processors</b></font></th>
+		<td width='75%'>$($ComputerSystem.NumberOfProcessors)</font></td>
+	 				</tr>
+    <tr>
+		<th width='25%'><b>Number of CPU Cores</b></font></th>
+		<td width='75%'>$($ComputerSystem.NumberOfLogicalProcessors)</font></td>
+	 				</tr>
+    <tr>
+		<th width='25%'><b>Memory</b></font></th>
+		<td width='75%'>$([system.math]::Round($ComputerSystem.TotalPhysicalMemory/1073741824,0))GB Installed ($([system.math]::Round($ComputerSystem.TotalPhysicalMemory/1073741824,2))GB Usable)</font></td>
+	 				</tr>
+	<tr>
+		<th width='25%'><b>Registered User</b></font></th>
+		<td width='75%'>$($ComputerSystem.PrimaryOwnerName)</font></td>
+	 				</tr>
+	 				<tr>
+		<th width='25%'><b>Registered Organisation</b></font></th>
+		<td width='75%'>$($OperatingSystems.Organization)</font></td>
+	</tr>
+"@
+    ForEach ($temps in $temp)
+	{
+        $Report+= "				<tr>"
+        $Report+= "				<th width='25%'><b>$($temps.Description)</b></font></th>"
+        $Report+= "				<td width='75%'>$($temps.CurrentReading + ' ' + $temps.Status)</font></td>"
+        $Report+= "				</tr>"
+    }
+$Report+= @"
+</tr>
+	  				<tr>
+	   				<th width='25%'><b>Last System Boot</b></font></th>
+		<td width='75%'>$LBTime</font></td>
+	</tr>
+				</TABLE>
+			</DIV>
+		</DIV>
+		<DIV class=filler></DIV>
+	<DIV class=container>
+	<DIV class=heading1>
+	<SPAN class=sectionTitle tabIndex=0>HotFixes</SPAN>
+	<A class=expando href='#'></A>
+	</DIV>
+	<DIV class=container>
+	<DIV class=tableDetail>
+	<TABLE>
+	<tr>
+	<th width='25%'><b>HotFix Number</b></font></th>
+	<th width='25%'><b>Description</b></font></th>
+    <th width='25%'><b>Installed By</b></font></th>
+    <th width='25%'><b>Installed On</b></font></th>
+	</tr>
+"@
+
+	ForEach ($objQuickFix in $colQuickFixes)
+	{
+		if ($objQuickFix.HotFixID -ne "File 1")
+		{
+			$Report+= "				<tr>"
+			$Report+= "					<td width='25%'><a target='_blank' href='http://support.microsoft.com/kb/$($objQuickFix.HotFixID.Replace('KB', ''))'>$($objQuickFix.HotFixID)</a></font></td>"
+			$Report+= "					<td width='25%'>$($objQuickFix.Description)</font></td>"
+            $Report+= "					<td width='25%'>$($objQuickFix.InstalledBy)</font></td>"
+            $Report+= "					<td width='25%'>$($objQuickFix.InstalledOn)</font></td>"
+			$Report+= "				</tr>"
+		}
+	}
+$Report+= @"
+	</TABLE>
+	</DIV>
+	</DIV>
+	</DIV>
+	<DIV class=filler></DIV>
+		<DIV class=container>
+			<DIV class=heading1>
+				<SPAN class=sectionTitle tabIndex=0>Logical Disk Configuration</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+					<TABLE>
+						<tr>
+	  						<th width='15%'><b>Drive Letter</b></font></th>
+	  						<th width='20%'><b>Label</b></font></th>
+	  						<th width='20%'><b>File System</b></font></th>
+	  						<th width='15%'><b>Disk Size</b></font></th>
+	  						<th width='15%'><b>Disk Free Space</b></font></th>
+	  						<th width='15%'><b>% Free Space</b></font></th>
+	  					</tr>
+"@
+
+	Foreach ($objDisk in $colDisks)
+	{
+		if ($objDisk.DriveType -eq 3)
+		{
+			$Report+=  "					<tr>"
+			$Report+=  "						<td width='15%'>$($objDisk.DeviceID)</font></td>"
+			$Report+=  " 						<td width='20%'>$($objDisk.VolumeName)</font></td>"
+			$Report+=  " 						<td width='20%'>$($objDisk.FileSystem)</font></td>"
+			$disksize = [math]::round(($objDisk.size / 1048576))
+			$Report+=  " 						<td width='15%'>$disksize MB</font></td>"
+			$freespace = [math]::round(($objDisk.FreeSpace / 1048576))
+			$Report+=  " 						<td width='15%'>$Freespace MB</font></td>"
+			$percFreespace=[math]::round(((($objDisk.FreeSpace / 1048576)/($objDisk.Size / 1048676)) * 100),0)
+			$Report+=  " 						<td width='15%'>$percFreespace%</font></td>"
+			$Report+=  "					</tr>"
+		}
+	}
+$Report+= @"
+	</TABLE>
+	</DIV>
+	</DIV>
+	</DIV>
+	<DIV class=filler></DIV>
+    
+    		
+    
+<DIV class=container>
+			<DIV class=heading1>
+				<SPAN class=sectionTitle tabIndex=0>Physical Disk Configuration</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+					<TABLE>
+						<tr>
+	  						<th width='15%'><b>ID</b></font></th>
+	  						<th width='20%'><b>Firmware</b></font></th>
+	  						<th width='20%'><b>Manufacturer</b></font></th>
+	  						<th width='15%'><b>Disk Size</b></font></th>
+	  						<th width='15%'><b>Status</b></font></th>
+	  						<th width='15%'><b>Model</b></font></th>
+	  					</tr>
+"@
+
+	Foreach ($objDisk in $PcolDisks)
+	{
+
+			$Report+=  "					<tr>"
+			$Report+=  "						<td width='15%'>$($objDisk.DeviceID)</font></td>"
+			$Report+=  " 						<td width='20%'>$($objDisk.FirmwareRevision)</font></td>"
+			$Report+=  " 						<td width='20%'>$($objDisk.Manufacturer)</font></td>"
+			$disksize = [math]::round(($objDisk.size / 1048576))
+			$Report+=  " 						<td width='15%'>$disksize MB</font></td>"
+			$Report+=  " 						<td width='15%'>$($objDisk.Status)</font></td>"
+			$Report+=  " 						<td width='15%'>$($objDisk.Model)</font></td>"
+			$Report+=  "					</tr>"
+		
+	}
+$Report+= @"
+	</TABLE>
+	</DIV>
+	</DIV>
+	</DIV>
+	<DIV class=filler></DIV>
+
+<DIV class=container>
+			<DIV class=heading1>
+				<SPAN class=sectionTitle tabIndex=0>Hardware Information</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+
+<DIV class=container>
+			<DIV class=heading2>
+				<SPAN class=sectionTitle tabIndex=0>OK Devices</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+					<TABLE>
+						<tr>
+	  						<th width='15%'><b>Manufacturer</b></font></th>
+	  						<th width='20%'><b>Name</b></font></th>
+	  						<th width='20%'><b>Status</b></font></th>
+	  					</tr>
+"@
+
+	Foreach ($device in $devices)
+	{
+			if($device.Status -eq "OK"){
+            $Report+=  "					<tr>"
+			$Report+=  "						<td width='15%'>$($device.Manufacturer)</font></td>"
+			$Report+=  " 						<td width='20%'>$($device.Name)</font></td>"
+			$Report+=  " 						<td width='20%'>$($device.Status)</font></td>"
+			$Report+=  "					</tr>"
+            }
+	
+	}
+$Report+= @"
+	</TABLE>
+	</DIV>
+	</DIV>
+	</DIV>
+	<DIV class=filler></DIV>
+
+<DIV class=container>
+			<DIV class=heading2>
+				<SPAN class=sectionTitle tabIndex=0>Degraded Devices</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+					<TABLE>
+						<tr>
+	  						<th width='15%'><b>Manufacturer</b></font></th>
+	  						<th width='20%'><b>Name</b></font></th>
+	  						<th width='20%'><b>Status</b></font></th>
+	  					</tr>
+"@
+
+	Foreach ($device in $devices)
+	{
+			if($device.Status -eq "Degraded"){
+            $Report+=  "					<tr>"
+			$Report+=  "						<td width='15%'>$($device.Manufacturer)</font></td>"
+			$Report+=  " 						<td width='20%'>$($device.Name)</font></td>"
+			$Report+=  " 						<td width='20%'>$($device.Status)</font></td>"
+			$Report+=  "					</tr>"
+            }
+	
+	}
+$Report+= @"
+	</TABLE>
+	</DIV>
+	</DIV>
+	</DIV>
+	<DIV class=filler></DIV>
+    
+    <DIV class=container>
+			<DIV class=heading2>
+				<SPAN class=sectionTitle tabIndex=0>Error Devices</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+					<TABLE>
+						<tr>
+	  						<th width='15%'><b>Manufacturer</b></font></th>
+	  						<th width='20%'><b>Name</b></font></th>
+	  						<th width='20%'><b>Status</b></font></th>
+	  					</tr>
+"@
+
+	Foreach ($device in $devices)
+	{
+			if($device.Status -eq "Error"){
+            $Report+=  "					<tr>"
+			$Report+=  "						<td width='15%'>$($device.Manufacturer)</font></td>"
+			$Report+=  " 						<td width='20%'>$($device.Name)</font></td>"
+			$Report+=  " 						<td width='20%'>$($device.Status)</font></td>"
+			$Report+=  "					</tr>"
+            }
+	
+	}
+$Report+= @"
+	</TABLE>
+	</DIV>
+	</DIV>
+	</DIV>
+    </DIV>
+	</DIV>
+	</DIV>
+    
+	<DIV class=filler></DIV>
+
+<DIV class=container>
+			<DIV class=heading1>
+				<SPAN class=sectionTitle tabIndex=0>Process Information</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+
+<DIV class=container>
+			<DIV class=heading2>
+				<SPAN class=sectionTitle tabIndex=0>Top 20 Processes by CPU</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+					<TABLE>
+						<tr>
+	  						<th width='15%'><b>Name</b></font></th>
+	  						<th width='20%'><b>Company</b></font></th>
+	  						<th width='20%'><b></b>CPU</font></th>
+                            <th width='20%'><b></b>RAM</font></th>
+	  					</tr>
+"@
+
+	Foreach ($process in Get-Process | sort CPU -desc | select -first 20)
+	{
+			$Report+=  "					<tr>"
+			$Report+=  "						<td width='15%'>$($process.name)</font></td>"
+			$Report+=  " 						<td width='20%'>$($process.company)</font></td>"
+			$Report+=  " 						<td width='20%'>$($process.cpu)</font></td>"
+            $Report+=  " 						<td width='20%'>$([system.math]::Round((($process.ws/1024/1024)),2))MB</font></td>"
+			$Report+=  "					</tr>"
+	
+	}
+$Report+= @"
+	</TABLE>
+	</DIV>
+	</DIV>
+	</DIV>
+	<DIV class=filler></DIV>
+    
+    <DIV class=container>
+			<DIV class=heading2>
+				<SPAN class=sectionTitle tabIndex=0>Top 20 Processes by RAM</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+					<TABLE>
+						<tr>
+	  						<th width='15%'><b>Name</b></font></th>
+	  						<th width='20%'><b>Company</b></font></th>
+	  						<th width='20%'><b></b>CPU</font></th>
+                            <th width='20%'><b></b>RAM</font></th>
+	  					</tr>
+"@
+
+	
+    Foreach ($process in Get-Process | sort WS -desc | select -first 20)
+	{
+			$Report+=  "					<tr>"
+			$Report+=  "						<td width='15%'>$($process.name)</font></td>"
+			$Report+=  " 						<td width='20%'>$($process.company)</font></td>"
+			$Report+=  " 						<td width='20%'>$($process.cpu)</font></td>"
+            $Report+=  " 						<td width='20%'>$([system.math]::Round((($process.ws/1024/1024)),2))MB</font></td>"
+			$Report+=  "					</tr>"
+	
+	}
+$Report+= @"
+	</TABLE>
+	</DIV>
+	</DIV>
+	</DIV>
+	</DIV>
+    </DIV>
+    </DIV>
+    <DIV class=filler></DIV>
+    
+
+<DIV class=container>
+			<DIV class=heading1>
+				<SPAN class=sectionTitle tabIndex=0>AntiVirus Information</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+					<TABLE>
+						<tr>
+	  						<th width='15%'><b>Product</b></font></th>
+	  						<th width='20%'><b>Path</b></font></th>
+	  						<th width='20%'><b>Status</b></font></th>
+	  					</tr>
+"@
+
+
+			$Report+=  "					<tr>"
+			$Report+=  "						<td width='15%'>$($av.DisplayName)</font></td>"
+			$Report+=  " 						<td width='20%'>$($av.pathToSignedProductExe)</font></td>"
+			if($av.productState -eq "266240"){
+            $Report+=  " 						<td width='20%'>AntiVirus up to date <br/> Realtime scanning enabled <br/> Windows Updates not enabled</font></td>"
+			} elseif($av.productState -eq "266256"){
+            $Report+=  " 						<td width='20%'>AntiVirus out of date <br/> Realtime scanning enabled <br/> Windows Updates not enabled</font></td>"
+			} elseif($av.productState -eq "397312"){
+            $Report+=  " 						<td width='20%'>AntiVirus up to Date <br/> Realtime scanning enabled <br/> Windows Updates enabled</font></td>"
+			} else {
+            $Report+=  " 						<td width='20%'>Unable to determine status</font></td>"
+            }
+            
+            $Report+=  "					</tr>"
+	
+    
+$Report+= @"
+	</TABLE>
+	</DIV>
+	</DIV>
+	</DIV>
+	<DIV class=filler></DIV>
+	
+		<DIV class=container>
+			<DIV class=heading1>
+				<SPAN class=sectionTitle tabIndex=0>NIC Configuration</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+					<TABLE>
+"@
+	Foreach ($objAdapter in $colAdapters)
+	{
+		if ($objAdapter.IPEnabled -eq "True")
+		{
+			$NICCount = $NICCount + 1
+			If ($NICCount -gt 1)
+			{
+				$Report+=  "			</TABLE>"
+				$Report+=  "				<DIV class=Solidfiller></DIV>"
+				$Report+=  "			<TABLE>"
+			}
+		$Report+=  "  					<tr>"
+		$Report+=  "	 					<th width='25%'><b>Description</b></font></th>"
+		$Report+=  "    					<td width='75%'>$($objAdapter.Description)</font></td>"
+		$Report+=  "  					</tr>"
+		$Report+=  "  					<tr>"
+		$Report+=  "						<th width='25%'><b>Physical address</b></font></th>"
+		$Report+=  "						<td width='75%'>$($objAdapter.MACaddress)</font></td>"
+		$Report+=  " 					</tr>"
+		If ($objAdapter.IPAddress -ne $Null)
+		{
+			$Report+=  "					<tr>"
+			$Report+=  "						<th width='25%'><b>IP Address / Subnet Mask</b></font></th>"
+			$Report+=  "						<td width='75%'>$($objAdapter.IPAddress)/$($objAdapter.IPSubnet)</font></td>"
+			$Report+=  "					</tr>"
+			$Report+=  "					</tr>"
+			$Report+=  "					<tr>"
+			$Report+=  "						<th width='25%'><b>Default Gateway</b></font></th>"
+			$Report+=  "						<td width='75%'>$($objAdapter.DefaultIPGateway)</font></td>"
+			$Report+=  "					</tr>"
+		
+		}
+		$Report+=  "					<tr>"
+		$Report+=  "						<th width='25%'><b>DHCP enabled</b></font></th>"
+		If ($objAdapter.DHCPEnabled -eq "True")
+		{
+			$Report+=  "						<td width='75%'>Yes</font></td>"
+		}
+		Else
+		{
+			$Report+=  "						<td width='75%'>No</font></td>"
+		}
+		$Report+=  "					</tr>"
+		$Report+=  "					<tr>"
+		$Report+=  "							<th width='25%'><b>DNS Servers</b></font></th>"
+		$Report+=  "							<td width='75%'>"
+		If ($objAdapter.DNSServerSearchOrder -ne $Null)
+		{
+			$Report+=  " $($objAdapter.DNSServerSearchOrder) "
+		}
+		$Report+=  "					</tr>"
+		$Report+=  "					<tr>"
+		$Report+=  "						<th width='25%'><b>Primary WINS Server</b></font></th>"
+		$Report+=  "						<td width='75%'>$($objAdapter.WINSPrimaryServer)</font></td>"
+		$Report+=  "					</tr>"
+		$Report+=  "					<tr>"
+		$Report+=  "						<th width='25%'><b>Secondary WINS Server</b></font></th>"
+		$Report+=  "						<td width='75%'>$($objAdapter.WINSSecondaryServer)</font></td>"
+		$Report+=  "					</tr>"
+		$NICCount = $NICCount + 1
+		}
+	}
+$Report+= @"
+					</TABLE>
+				</DIV>
+			</DIV>
+		</DIV>
+		<DIV class=filler></DIV>
+"@	
+	if ((get-wmiobject -namespace "root/cimv2" -list) | ? {$_.name -match "Win32_Product"})
+	{
+		Write-Output "..Installed Software"
+		$colApps = get-wmiobject -ComputerName $Target Win32_Product | select Name,Version,Vendor,InstallDate,InstallSource,InstallLocation
+		
+$Report+= @"
+	<DIV class=container>
+				<DIV class=heading1>
+					<SPAN class=sectionTitle tabIndex=0>Software</SPAN>
+					<A class=expando href='#'></A>
+				</DIV>
+				<DIV class=container>
+					<DIV class=tableDetail>
+						<TABLE>
+							<tr>
+		  						<th><b>Name</b></font></th>
+		  						<th><b>Version</b></font></th>
+		  						<th><b>Vendor</b></font></th>
+		  						<th><b>Install Date</b></font></th>
+                                <th><b>Install Location</b></font></th>
+							</tr>
+"@
+		Foreach ($objApps in $colApps)
+		{
+			
+            $Report+=  "					<tr>"
+			$Report+=  "						<td>$($objApps.Name)</font></td>"
+			$Report+=  "						<td>$($objApps.Version)</font></td>"
+			$Report+=  "						<td>$($objApps.Vendor)</font></td>"
+			$Report+=  "						<td>$($objApps.InstallDate)</font></td>"
+            $Report+=  "						<td>$($objApps.InstallLocation)</font></td>"
+			$Report+=  "					</tr>"
+		}
+		$Report+=  "				</TABLE>"
+		$Report+=  "			</DIV>"
+		$Report+=  "		</DIV>"
+		$Report+=  "	</DIV>"
+		$Report+=  "	<DIV class=filler></DIV>"		
+	}
+$Report+= @"
+		<DIV class=container>
+			<DIV class=heading1>
+				<SPAN class=sectionTitle tabIndex=0>Local Shares</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+					<TABLE>
+						<tr>
+	  						<th width='25%'><b>Share</b></font></th>
+	  						<th width='25%'><b>Path</b></font></th>
+	  						<th width='50%'><b>Comment</b></font></th>
+						</tr>
+"@
+Foreach ($objShare in $colShares)
+	{
+		$Report+=  "					<tr>"
+		$Report+=  "						<td width='25%'>$($objShare.Name)</font></td>"
+		$Report+=  "						<td width='25%'>$($objShare.Path)</font></td>"
+		$Report+=  "						<td width='50%'>$($objShare.Caption)</font></td>"
+		$Report+=  "					</tr>"
+	}	
+$Report+= @"
+					</TABLE>
+				</DIV>
+			</DIV>
+		</DIV>
+		<DIV class=filler></DIV>
+	
+		<DIV class=container>
+			<DIV class=heading1>
+				<SPAN class=sectionTitle tabIndex=0>Printers</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+					<TABLE>
+						<tr>
+							<th width='25%'><b>Printer</b></font></th>
+							<th width='25%'><b>Location</b></font></th>
+							<th width='25%'><b>Default Printer</b></font></th>
+							<th width='25%'><b>Portname</b></font></th>
+						</tr>
+"@
+	Foreach ($objPrinter in $colInstalledPrinters)
+	{
+		If ($objPrinter.Name -eq "")
+		{
+			$Report+=  "					<tr>"
+			$Report+=  "						<td width='100%'>No Printers Installed</font></td>"
+		}
+		Else
+		{
+			$Report+=  "					<tr>"
+			$Report+=  "						<td width='25%'>$($objPrinter.Name)</font></td>"
+			$Report+=  "						<td width='25%'>$($objPrinter.Location)</font></td>"
+			if ($objPrinter.Default -eq "True")
+			{
+				$Report+=  "						<td width='25%'>Yes</font></td>"
+			}
+			Else
+			{
+				$Report+=  "						<td width='25%'>No</font></td>"
+			}
+			$Report+=  "						<td width='25%'>$($objPrinter.Portname)</font></td>"
+		}
+		$Report+=  "					</tr>"
+	}
+$Report+= @"
+				</TABLE>
+				</DIV>
+			</DIV>
+		</DIV>
+		<DIV class=filler></DIV>
+		<DIV class=container>
+			<DIV class=heading1>
+				<SPAN class=sectionTitle tabIndex=0>Services</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+					<TABLE>
+	  					<tr>
+		 					<th width='20%'><b>Name</b></font></th>
+		 					<th width='20%'><b>Account</b></font></th>
+		 					<th width='20%'><b>Start Mode</b></font></th>
+		 					<th width='20%'><b>State</b></font></th>
+		 					<th width='20%'><b>Expected State</b></font></th>
+	  					</tr>
+"@
+
+	Foreach ($objService in $colListOfServices)
+	{
+		$Report+=  " 					<tr>"
+		$Report+=  "	 					<td width='20%'>$($objService.Caption)</font></td>"
+		$Report+=  "	 					<td width='20%'>$($objService.Startname)</font></td>"
+		$Report+=  "	 					<td width='20%'>$($objService.StartMode)</font></td>"
+		If ($objService.StartMode -eq "Auto")
+		{
+			if ($objService.State -eq "Stopped")
+			{
+				$Report+=  "						<td width='20%'><font color='#FF0000'>$($objService.State)</font></td>"
+				$Report+=  "						<td width='25%'><font face='Wingdings'color='#FF0000'>û</font></td>"
+			}
+		}
+		If ($objService.StartMode -eq "Auto")
+		{
+			if ($objService.State -eq "Running")
+			{
+				$Report+=  "						<td width='20%'><font color='#009900'>$($objService.State)</font></td>"
+				$Report+=  "						<td width='20%'><font face='Wingdings'color='#009900'>ü</font></td>"
+			}
+		}
+		If ($objService.StartMode -eq "Disabled")
+		{
+			If ($objService.State -eq "Running")
+			{
+				$Report+=  "						<td width='20%'><font color='#FF0000'>$($objService.State)</font></td>"
+				$Report+=  "						<td width='25%'><font face='Wingdings'color='#FF0000'>û</font></td>"
+			}
+		}
+		If ($objService.StartMode -eq "Disabled")
+		{
+			if ($objService.State -eq "Stopped")
+			{
+				$Report+=  "						<td width='20%'><font color='#009900'>$($objService.State)</font></td>"
+				$Report+=  "						<td width='20%'><font face='Wingdings'color='#009900'>ü</font></td>"
+			}
+		}
+		If ($objService.StartMode -eq "Manual")
+		{
+			$Report+=  "						<td width='20%'><font color='#009900'>$($objService.State)</font></td>"
+			$Report+=  "						<td width='20%'><font face='Wingdings'color='#009900'>ü</font></td>"
+		}
+		If ($objService.State -eq "Paused")
+		{
+			$Report+=  "						<td width='20%'><font color='#FF9933'>$($objService.State)</font></td>"
+			$Report+=  "						<td width='20%'><font face='Wingdings'color='#009900'>ü</font></td>"
+		}
+		$Report+=  "  					</tr>"
+	}	
+$Report+= @"
+					</TABLE>
+				</DIV>
+			</DIV>
+		</DIV>
+		<DIV class=filler></DIV>
+		<DIV class=container>
+			<DIV class=heading1>
+				<SPAN class=sectionTitle tabIndex=0>Regional Settings</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+					<TABLE>
+	 					<tr>
+		 					<th width='25%'><b>Time Zone</b></font></th>
+		 					<td width='75%'>$($TimeZone.Description)</font></td>
+	 					</tr>
+	 					<tr>
+		 					<th width='25%'><b>Country Code</b></font></th>
+		 					<td width='75%'>$($OperatingSystems.Countrycode)</font></td>
+	 					</tr>
+	 					<tr>
+			 				<th width='25%'><b>Locale</b></font></th>
+			 				<td width='75%'>$($OperatingSystems.Locale)</font></td>
+	 					</tr>
+	 					<tr>
+			 				<th width='25%'><b>Operating System Language</b></font></th>
+			 				<td width='75%'>$($OperatingSystems.OSLanguage)</font></td>
+	 					</tr>
+	 					<tr>
+		 				<th width='25%'><b>Keyboard Layout</b></font></th>
+			 				<td width='75%'>$keyb</font></td>
+	 					</tr>
+					</TABLE>
+				</div>
+			</DIV>
+		</DIV>
+
+"@
+
+if ($ComputerRole -ne "Member Workstation")
+{ 
+    $Report+= @"
+
+		<DIV class=filler></DIV>
+		<DIV class=container>
+			<DIV class=heading1>
+				<SPAN class=sectionTitle tabIndex=0>Event Logs</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+		<DIV class=container>
+			<DIV class=heading2>
+				<SPAN class=sectionTitle tabIndex=0>Event Log Settings</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+					<TABLE>
+	  					<tr>
+	    					<th width='25%'><b>Log Name</b></font></th>
+	    					<th width='25%'><b>Overwrite Outdated Records</b></font></th>
+	  					  	<th width='25%'><b>Maximum Size</b></font></th>
+	 					   	<th width='25%'><b>Current Size</b></font></th>
+	 					</tr>
+"@
+	ForEach ($objLogFile in $colLogfiles)
+	{
+		$Report+=  " 					<tr>"
+		$Report+=  "	 					<td width='25%'>$($objLogFile.LogFileName)</font></td>"
+		If ($objLogfile.OverWriteOutdated -lt 0)
+		{
+			$Report+=  "	 					<td width='25%'>Never</font></td>"
+		}
+		if ($objLogFile.OverWriteOutdated -eq 0)
+		{
+			$Report+=  "	 					<td width='25%'>As needed</font></td>"
+		}
+		Else
+		{
+			$Report+=  "	 					<td width='25%'>After $($objLogFile.OverWriteOutdated) days</font></td>"
+		}
+		$MaxFileSize = ($objLogfile.MaxFileSize) / 1024
+		$FileSize = ($objLogfile.FileSize) / 1024
+		
+		$Report+=  "	 					<td width='25%'>$MaxFileSize KB</font></td>"
+		$Report+=  "	 					<td width='25%'>$FileSize KB</font></td>"
+		$Report+=  "  					</tr>"
+	}
+
+$Report+= @"
+					</TABLE>
+				</DIV>
+			</DIV>
+		</DIV>
+		<DIV class=filler></DIV>
+		<DIV class=container>
+			<DIV class=heading2>
+				<SPAN class=sectionTitle tabIndex=0>ERROR Entries</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+					<TABLE>
+	  					<tr>
+	    					<th width='10%'><b>Event Code</b></font></th>
+	   					<th width='10%'><b>Source Name</b></font></th>
+	    					<th width='15%'><b>Time</b></font></th>
+	    					<th width='10%'><b>Log</b></font></th>
+	    					<th width='55%'><b>Message</b></font></th>
+	  					</tr>
+"@
+	ForEach ($objEvent in $colELoggedEvents)
+	{
+		$dtmEventDate = $ObjEvent.ConvertToDateTime($objEvent.TimeWritten)
+		$Report+=  " 					<tr>"
+		$Report+=  "	 					<td width='10%'>$($objEvent.EventCode)</font></td>"
+		$Report+=  "	 					<td width='10%'>$($objEvent.SourceName)</font></td>"
+		$Report+=  "	 					<td width='15%'>$dtmEventDate</font></td>"
+		$Report+=  "	 					<td width='10%'>$($objEvent.LogFile)</font></td>"
+		$Report+=  "	 					<td width='55%'>$($objEvent.Message)</font></td>"
+		$Report+=  "  					</tr>"
+	}
+$Report+= @"
+					</TABLE>
+				</DIV>
+			</DIV>
+		</DIV>
+		<DIV class=filler></DIV>
+		<DIV class=container>
+			<DIV class=heading2>
+				<SPAN class=sectionTitle tabIndex=0>WARNING Entries</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+					<TABLE>
+	  					<tr>
+	    					<th width='10%'><b>Event Code</b></font></th>
+	   					    <th width='10%'><b>Source Name</b></font></th>
+	    					<th width='15%'><b>Time</b></font></th>
+	    					<th width='10%'><b>Log</b></font></th>
+	    					<th width='55%'><b>Message</b></font></th>
+	  					</tr>
+"@
+	ForEach ($objEvent in $colWLoggedEvents)
+	{
+		$StrWMIDate = $ObjEvent.ConvertToDateTime($objEvent.TimeWritten)
+		$Report+=  " 					<tr>"
+		$Report+=  "	 					<td width='10%'>$($objEvent.EventCode)</font></td>"
+		$Report+=  "	 					<td width='10%'>$($objEvent.SourceName)</font></td>"
+		$Report+=  "	 					<td width='15%'>$($dtmEventDate)</font></td>"
+		$Report+=  "	 					<td width='10%'>$($objEvent.LogFile)</font></td>"
+		$Report+=  "	 					<td width='55%'>$($objEvent.Message)</font></td>"
+		$Report+=  "  					</tr>"
+	}
+$Report+= @"
+					</TABLE>
+				</DIV>
+			</DIV>
+		</DIV> 
+"@ 
+} 
+
+$Report+= @"
+
+        </DIV>
+			</DIV>
+		</DIV>
+		<DIV class=filler></DIV>
+        
+"@
+ 
+if($ComputerSystem.DomainRole -eq 5)
+{
+
+$DCDiag = Get-Content .\DCDIAG-$($Target).log
+ 
+# Creating the DCDiag object
+ $DCDiagObject = "" | Select-Object Server,Advertising,SPNs,KnownRoles,Tests
+ $DCDiagObject.Server = ""
+ $DCDiagObject.Advertising = @()
+ $DCDiagObject.KnownRoles = @()
+ $DCDiagObject.SPNs = @()
+ $DCDiagObject.Tests = @()
+ 
+# Setting up RegEXs here so they are easier to consume for the viewer
+ $DCNameRegex = "^\s*\* Connecting to directory service on server (?<DCName>\S+)."
+ $Advertising = "^\s+The\sDC\s\w*\sis\sadvertising\sas\s(a|an|having a)\s(?<Type>.*)"
+ $KnownRolesRegex = "^.*Role\s(?<Role>.*)\sOwner = CN=NTDS Settings,CN=(?<Holder>\S*),"
+ $SPNsRegex = "^\s+\* SPN found \:(?<SPN>.*)"
+ $StartRegex = "^\s*\.+\s(?<Target>\S+)\s(?<Result>\w+)\stest\s(?<Test>\w+)"
+ 
+# Getting stuff done
+ switch -regex ($DCDiag)
+ {
+     $DCNameRegex        {$DCDiagObject.Server = $matches.DCName}
+     $Advertising        {$DCDiagObject.Advertising += $matches.Type}
+     $KnownRolesRegex    {$DCDiagObject.KnownRoles += $matches.Role}
+     $SPNsRegex          {$DCDiagObject.SPNs += $matches.SPN}
+     $StartRegex         {
+                             $myobj = "" | Select-Object Target,Test,Result
+                             $myobj.Target = $matches.Target
+                             $myobj.Test = $matches.Test
+                             $myobj.Result = $matches.Result
+                             $myobj | Add-Member -MemberType ScriptMethod -name ToString -value {$this.Test} -force
+                             $DCDiagObject.Tests += $myobj
+                         }
+ }
+ 
+# outputting object
+# $DCDiagObject.
+
+$Report+= @"
+<DIV class=container>
+			<DIV class=heading1>
+				<SPAN class=sectionTitle tabIndex=0>AD Domain Tests</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+					<TABLE>
+	  					<tr>
+	    					<th width='33%'><b>Target</b></font></th>
+	   					    <th width='33%'><b>Test</b></font></th>
+	    					<th width='33%'><b>Result</b></font></th>
+	  					</tr>
+"@
+	ForEach ($DCTest in $DCDiagObject.Tests)
+	{
+		
+		$Report+=  " 					<tr>"
+		$Report+=  "	 					<td width='33%'>$($DCTest.Target)</font></td>"
+		$Report+=  "	 					<td width='33%'>$($DCTest.Test)</font></td>"
+		$Report+=  "	 					<td width='33%'>$($DCTest.Result)</font></td>"
+		$Report+=  "  					</tr>"
+	}
+$Report+= @"
+					</TABLE>
+				</DIV>
+			</DIV>
+		</DIV>
+		<DIV class=filler></DIV>
+"@
+
+$Report+= @"
+<DIV class=container>
+			<DIV class=heading1>
+				<SPAN class=sectionTitle tabIndex=0>FSMO Roles</SPAN>
+				<A class=expando href='#'></A>
+			</DIV>
+			<DIV class=container>
+				<DIV class=tableDetail>
+					<TABLE>
+	  					<tr>
+	    					<th width='50%'><b>Role</b></font></th>
+	   					    <th width='50%'><b>Holder</b></font></th>
+	  					</tr>
+"@
+
+		
+		$Report+=  " 					<tr>"
+		$Report+=  "	 					<td width='50%'>$($DCDiagObject.KnownRoles.Replace(' ','<br/>'))</font></td>"
+		$Report+=  "	 					<td width='50%'></font></td>"
+		$Report+=  "  					</tr>"
+
+$Report+= @"
+					</TABLE>
+				</DIV>
+			</DIV>
+		</DIV>
+		<DIV class=filler></DIV>
+"@
+
+}
+
+        
+$Report+= @"
+
+        </body>
+	</html>
+"@
+$Report | out-file -encoding ASCII -filepath $Filename
+}
